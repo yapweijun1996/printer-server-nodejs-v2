@@ -14,6 +14,16 @@ const { print, getPrinters } = pkg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- Puppeteer browser reuse ---
+let sharedBrowser;
+async function getSharedBrowser() {
+    if (!sharedBrowser) {
+        sharedBrowser = await puppeteer.launch({ headless: true });
+        process.on('exit', () => sharedBrowser && sharedBrowser.close());
+    }
+    return sharedBrowser;
+}
+
 // --- Initialize Express App ---
 const app = express();
 const port = 3000;
@@ -46,11 +56,11 @@ app.post('/api/print-html', async (req, res) => {
 
     console.log(`Received high-quality print request for printer: ${printerName || 'default'}`);
 
-    let browser;
+    let page;
     try {
-        // 1. Launch Puppeteer
-        browser = await puppeteer.launch({ headless: true });
-        const page = await browser.newPage();
+        // --- FAST: Reuse browser ---
+        const browser = await getSharedBrowser();
+        page = await browser.newPage();
 
         // 2. Set the deviceScaleFactor for sharper rendering
         let viewportWidth = 1200, viewportHeight = 1600;
@@ -86,26 +96,25 @@ app.post('/api/print-html', async (req, res) => {
         // 5. Generate the PDF (very sharp!)
         const pdfBuffer = await page.pdf(pdfOptions);
 
-        await browser.close();
+        await page.close(); // only close page, not browser!
 
-        // 6. Save and print
+        // 6. Save and print (async file IO)
         const tempFilePath = path.join(__dirname, `temp_print_${uuidv4()}.pdf`);
-        fs.writeFileSync(tempFilePath, pdfBuffer);
+        await fs.promises.writeFile(tempFilePath, pdfBuffer);
 
         console.log(`Printing generated PDF (${tempFilePath})`);
         await print(tempFilePath, { printer: printerName || undefined });
 
-        fs.unlinkSync(tempFilePath);
+        await fs.promises.unlink(tempFilePath);
 
         res.status(200).json({ message: 'High-quality print job sent successfully!' });
 
     } catch (error) {
         console.error('Error during Puppeteer printing:', error);
-        if (browser) await browser.close();
+        if (page) await page.close();
         res.status(500).json({ error: 'Failed to generate or print PDF.', details: error.message });
     }
 });
-
 
 /**
  * LOWER-QUALITY PDF Route for Base64 data.
@@ -122,13 +131,13 @@ app.post('/api/print-base64', async (req, res) => {
 
     const tempFilePath = path.join(__dirname, `temp_print_${uuidv4()}.pdf`);
     
-    // Convert Base64 string back into a file
-    fs.writeFileSync(tempFilePath, Buffer.from(base64Data, 'base64'));
+    // Convert Base64 string back into a file (async)
+    await fs.promises.writeFile(tempFilePath, Buffer.from(base64Data, 'base64'));
     
     try {
         // Send the pre-made file to the printer
         await print(tempFilePath, { printer: printerName || undefined });
-        fs.unlinkSync(tempFilePath); // Clean up
+        await fs.promises.unlink(tempFilePath); // Clean up
         res.status(200).json({ message: 'Base64 print job sent successfully!' });
     } catch (error) {
         console.error('Error during Base64 printing:', error);
