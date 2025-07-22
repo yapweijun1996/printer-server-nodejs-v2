@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Printers & Configuration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: system-ui, Arial, sans-serif; background: #f4f7fa; margin: 0; }
+        .container {
+            max-width: 780px;
+            margin: 40px auto;
+            padding: 32px 20px;
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 6px 22px #0001;
+        }
+        h1 {
+            color: #2263ad;
+            margin-bottom: 18px;
+            font-size: 2rem;
+        }
+        .printer-card {
+            margin: 24px 0 34px 0;
+            padding: 24px 22px;
+            background: #f5f8fd;
+            border-radius: 12px;
+            border: 1px solid #e1e8ee;
+            box-shadow: 0 2px 8px #0001;
+        }
+        .printer-title {
+            font-size: 1.14em;
+            font-weight: bold;
+            color: #1a4366;
+        }
+        .is-default { color: #218838; font-weight: bold; }
+        table { margin-top: 10px; border-collapse: collapse; width: 100%; }
+        td, th { border: 1px solid #e2e7ed; padding: 8px 12px; text-align: left; font-size: 1em; }
+        th { background: #eef4fa; color: #2566a3; font-weight: 500; width: 120px; }
+        .no-config { color: #b2b2b2; font-style: italic; padding: 10px; }
+        .pill {
+            display: inline-block;
+            background: #dbeafe;
+            color: #19518a;
+            border-radius: 14px;
+            padding: 2px 13px;
+            margin: 2px 6px 2px 0;
+            font-size: 0.97em;
+            font-weight: 500;
+            border: 1px solid #bad6f8;
+            transition: background .2s;
+        }
+        .error { color: #b71c1c; background: #ffeaea; padding: 14px 18px; border-radius: 9px; margin: 18px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Printers & Configuration</h1>
+        <div id="printer-list"></div>
+    </div>
+    <script>
+        fetch('http://localhost:3000/api/printers')
+            .then(res => res.json())
+            .then(printers => {
+                const listDiv = document.getElementById('printer-list');
+                if (!Array.isArray(printers) || printers.length === 0) {
+                    listDiv.innerHTML = "<div class='error'>No printers found.</div>";
+                    return;
+                }
+                printers.forEach(printer => {
+                    let html = `<div class="printer-card">
+                        <div class="printer-title">${printer.name || printer.deviceId || "(Unnamed Printer)"} ${printer.isDefault ? '<span class="is-default">(Default)</span>' : ''}</div>`;
+                    // Show all config in a table
+                    if (Object.keys(printer).length > 1) {
+                        html += '<table>';
+                        for (const [k, v] of Object.entries(printer)) {
+                            html += `<tr><th>${k}</th><td>${
+                                Array.isArray(v)
+                                  ? v.map(x => `<span class="pill">${x}</span>`).join('')
+                                  : (typeof v === 'boolean' ? (v ? 'Yes' : 'No') : JSON.stringify(v))
+                            }</td></tr>`;
+                        }
+                        html += '</table>';
+                    } else {
+                        html += `<div class="no-config">No detailed config available.</div>`;
+                    }
+                    html += '</div>';
+                    listDiv.innerHTML += html;
+                });
+            })
+            .catch(err => {
+                document.getElementById('printer-list').innerHTML = `<div class='error'>Failed to load printers.<br>Is your server running?</div>`;
+            });
+    </script>
+</body>
+</html>

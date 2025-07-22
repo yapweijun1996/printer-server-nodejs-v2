@@ -33,56 +33,79 @@ app.get('/', (req, res) => res.send('Node.js Print Server is running!'));
  * a perfect, vector-based PDF with selectable text. This is the preferred method.
  */
 app.post('/api/print-html', async (req, res) => {
+    console.log(`[${new Date().toLocaleString()}] Print request:
+        IP: ${req.ip}
+        User-Agent: ${req.headers['user-agent']}
+        Origin: ${req.headers.origin}
+        Referer: ${req.headers.referer}`);
     const { htmlContent, paperSize = 'a4', printerName } = req.body;
 
     if (!htmlContent) {
         return res.status(400).json({ error: 'Missing htmlContent.' });
     }
-    
+
     console.log(`Received high-quality print request for printer: ${printerName || 'default'}`);
 
     let browser;
     try {
-        // 1. Launch a headless (invisible) Chromium browser
+        // 1. Launch Puppeteer
         browser = await puppeteer.launch({ headless: true });
         const page = await browser.newPage();
-        
-        // 2. Set the HTML content of the page
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        
-        // 3. Emulate a screen to ensure styles are applied correctly
-        await page.emulateMediaType('screen');
 
-        // 4. Generate the PDF. This creates a TRUE PDF, not an image.
-        // The text will be selectable and clear.
-        const pdfBuffer = await page.pdf({
-            format: paperSize,
-            printBackground: true,
-            margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
+        // 2. Set the deviceScaleFactor for sharper rendering
+        let viewportWidth = 1200, viewportHeight = 1600;
+        if (Array.isArray(paperSize)) {
+            // Convert mm to px (1mm ≈ 3.7795px)
+            viewportWidth = Math.ceil(Number(paperSize[0]) * 3.7795);
+            viewportHeight = Math.ceil(Number(paperSize[1]) * 3.7795);
+        }
+        await page.setViewport({
+            width: viewportWidth,
+            height: viewportHeight,
+            deviceScaleFactor: 2  // Use 2 or 3 for very sharp output!
         });
 
-        await browser.close(); // Close the browser once the PDF is in memory
+        // 3. Set the HTML content
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        await page.emulateMediaType('screen');
 
-        // 5. Save the PDF buffer to a temporary file for the printer
+        // 4. Prepare PDF options
+        let pdfOptions = {
+            printBackground: true,
+            margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' }
+        };
+
+        if (Array.isArray(paperSize)) {
+            pdfOptions.width = `${paperSize[0]}mm`;
+            pdfOptions.height = `${paperSize[1]}mm`;
+        } else {
+            pdfOptions.format = paperSize || 'a4';
+            pdfOptions.margin = { top: '20px', right: '20px', bottom: '20px', left: '20px' };
+        }
+
+        // 5. Generate the PDF (very sharp!)
+        const pdfBuffer = await page.pdf(pdfOptions);
+
+        await browser.close();
+
+        // 6. Save and print
         const tempFilePath = path.join(__dirname, `temp_print_${uuidv4()}.pdf`);
         fs.writeFileSync(tempFilePath, pdfBuffer);
 
         console.log(`Printing generated PDF (${tempFilePath})`);
-
-        // 6. Send the file to the specified printer
         await print(tempFilePath, { printer: printerName || undefined });
 
-        // 7. Clean up the temporary file
         fs.unlinkSync(tempFilePath);
-        
+
         res.status(200).json({ message: 'High-quality print job sent successfully!' });
 
     } catch (error) {
         console.error('Error during Puppeteer printing:', error);
-        if (browser) await browser.close(); // Ensure browser is closed on error
+        if (browser) await browser.close();
         res.status(500).json({ error: 'Failed to generate or print PDF.', details: error.message });
     }
 });
+
 
 /**
  * LOWER-QUALITY PDF Route for Base64 data.
