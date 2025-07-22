@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quotation Demo - Letter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f9f9f9; }
+        .container { max-width: 8.5in; min-height: 11in; margin: 20px auto; padding: 0.5in; border: 1px solid #ddd; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; background-color: #fff; }
+        .controls-container { max-width: 8.5in; margin: 20px auto; padding: 25px; border: 1px solid #ddd; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; background-color: #fff; }
+        h1, h2 { color: #f0ad4e; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
+        .quote-details { text-align: right; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .terms { margin-top: 30px; font-size: 0.9em; border-top: 1px solid #eee; padding-top: 15px; }
+        .total { text-align: right; margin-top: 20px; font-size: 1.2em; font-weight: bold; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        select { width: 100%; padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+        .print-btn { padding: 15px; font-size: 16px; font-weight: bold; color: #fff; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.2s; }
+        .print-btn:disabled { background-color: #999; cursor: wait; opacity: 0.7; }
+        #print-html-button { background-color: #28a745; }
+        #print-base64-button { background-color: #007bff; }
+        #message { margin-top: 20px; padding: 15px; border-radius: 5px; text-align: center; font-weight: bold; display: none; }
+        .message-success { background-color: #d4edda; color: #155724; }
+        .message-error { background-color: #f8d7da; color: #721c24; }
+        .message-info { background-color: #cce5ff; color: #004085; }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="content-to-print">
+        <div class="header">
+            <div class="company-details">
+                <h2>Creative Solutions Co.</h2>
+                <p>42 Design Street<br>Artville, USA</p>
+            </div>
+            <div class="quote-details">
+                <h1>QUOTATION</h1>
+                <p><strong>Quote #:</strong> <span id="quote-no"></span></p>
+                <p><strong>Date:</strong> <span id="quote-date"></span></p>
+                <p><strong>Valid Until:</strong> <span id="valid-date"></span></p>
+            </div>
+        </div>
+
+        <h3>Prepared For:</h3>
+        <p>Future Client LLC<br>777 Opportunity Road<br>Growth City, USA</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Description of Services</th>
+                    <th>Estimated Hours</th>
+                    <th>Rate</th>
+                    <th>Line Total</th>
+                </tr>
+            </thead>
+            <tbody id="quote-items">
+                <!-- Items will be generated here -->
+            </tbody>
+        </table>
+        <div class="total">
+            <p>Estimated Total: $<span id="grand-total"></span></p>
+        </div>
+        
+        <div class="terms">
+            <h3>Terms & Conditions</h3>
+            <p>1. This quotation is valid for 30 days from the date of issue.</p>
+            <p>2. A 50% deposit is required upon acceptance of this quotation to commence work.</p>
+            <p>3. Any changes to the scope of work will be subject to a revised quotation.</p>
+        </div>
+    </div>
+
+    <div class="controls-container">
+        <label for="paper-size-select">Paper Size:</label>
+        <select id="paper-size-select">
+            <option value="letter" selected>Letter</option>
+            <option value="a4">A4</option>
+        </select>
+        
+        <div class="button-group">
+            <button id="print-html-button" class="print-btn">Print via HTML (High Quality)</button>
+            <button id="print-base64-button" class="print-btn">Print via Base64 (Low Quality)</button>
+        </div>
+        
+        <div id="message"></div>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const PRINT_SERVER_URL = 'http://localhost:3000';
+    const TARGET_PRINTER = '';
+
+    // --- DOM Elements & Setup ---
+    const htmlPrintBtn = document.getElementById('print-html-button');
+    const base64PrintBtn = document.getElementById('print-base64-button');
+    const messageDiv = document.getElementById('message');
+    const contentToPrint = document.getElementById('content-to-print');
+    const paperSizeSelect = document.getElementById('paper-size-select');
+    const { jsPDF } = window.jspdf;
+
+    // --- Data Generation ---
+    function generateRandomData() {
+        document.getElementById('quote-no').textContent = `Q-${Math.floor(2000 + Math.random() * 8000)}`;
+        const today = new Date();
+        const validDate = new Date();
+        validDate.setDate(today.getDate() + 30);
+        document.getElementById('quote-date').textContent = today.toLocaleDateString();
+        document.getElementById('valid-date').textContent = validDate.toLocaleDateString();
+
+        const items = [
+            { desc: 'Initial Consultation & Discovery', hours: 5, rate: 200 },
+            { desc: 'Brand Identity & Logo Design', hours: 25, rate: 150 },
+            { desc: 'Website Development (5 pages)', hours: 40, rate: 180 }
+        ];
+        
+        const itemsTbody = document.getElementById('quote-items');
+        let grandTotal = 0;
+        itemsTbody.innerHTML = '';
+        items.forEach(item => {
+            const total = item.hours * item.rate;
+            grandTotal += total;
+            const row = `<tr>
+                <td>${item.desc}</td>
+                <td>${item.hours}</td>
+                <td>${item.rate.toFixed(2)}</td>
+                <td>${total.toFixed(2)}</td>
+            </tr>`;
+            itemsTbody.innerHTML += row;
+        });
+        document.getElementById('grand-total').textContent = grandTotal.toFixed(2);
+    }
+
+    // --- Shared Functions & Handlers ---
+    function showMessage(text, type) {
+        messageDiv.textContent = text;
+        messageDiv.className = `message-${type}`;
+        messageDiv.style.display = 'block';
+    }
+
+    function setButtonsState(disabled) {
+        htmlPrintBtn.disabled = disabled;
+        base64PrintBtn.disabled = disabled;
+    }
+
+    async function handleHtmlPrint() {
+        setButtonsState(true);
+        showMessage('Sending HTML to server...', 'info');
+        try {
+            const html = '<!DOCTYPE html>' + document.documentElement.outerHTML;
+            const paperSize = paperSizeSelect.value;
+            const response = await fetch(`${PRINT_SERVER_URL}/api/print-html`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ htmlContent: html, paperSize, printerName: TARGET_PRINTER })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.details || result.error);
+            showMessage(result.message, 'success');
+        } catch (error) {
+            showMessage(`Error: ${error.message}.`, 'error');
+        } finally {
+            setButtonsState(false);
+        }
+    }
+
+    async function handleBase64Print() {
+        setButtonsState(true);
+        showMessage('Generating image of content...', 'info');
+        try {
+            const canvas = await html2canvas(contentToPrint, { scale: 2 });
+            const paperSize = paperSizeSelect.value;
+            const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: paperSize });
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const imgData = canvas.toDataURL('image/png');
+            const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
+            const base64String = pdf.output('datauristring').split(',')[1];
+
+            showMessage('Sending to printer...', 'info');
+            const response = await fetch(`${PRINT_SERVER_URL}/api/print-base64`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base64Data: base64String, printerName: TARGET_PRINTER })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.details || result.error);
+            showMessage(result.message, 'success');
+        } catch (error) {
+            showMessage(`Error: ${error.message}.`, 'error');
+        } finally {
+            setButtonsState(false);
+        }
+    }
+
+    // --- Attach Event Listeners ---
+    document.addEventListener('DOMContentLoaded', generateRandomData);
+    htmlPrintBtn.addEventListener('click', handleHtmlPrint);
+    base64PrintBtn.addEventListener('click', handleBase64Print);
+</script>
+
+</body>
+</html>

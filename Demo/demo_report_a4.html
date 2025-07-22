@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Print Methods</title>
+    <!-- jsPDF and html2canvas are ONLY for the lower-quality Base64 method -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f9f9f9; }
+        .container { max-width: 800px; margin: 20px auto; padding: 25px; border: 1px solid #ddd; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; background-color: #fff; }
+        .controls-container { max-width: 800px; margin: 20px auto; padding: 25px; border: 1px solid #ddd; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 8px; background-color: #fff; }
+        h1, h2 { color: #005a9c; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        select { width: 100%; padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        
+        .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+        .print-btn { padding: 15px; font-size: 16px; font-weight: bold; color: #fff; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.2s; }
+        .print-btn:disabled { background-color: #999; cursor: wait; opacity: 0.7; }
+        
+        #print-html-button { background-color: #28a745; } /* Green for high quality */
+        #print-html-button:hover:not(:disabled) { background-color: #218838; }
+        
+        #print-base64-button { background-color: #007bff; } /* Blue for the alternative */
+        #print-base64-button:hover:not(:disabled) { background-color: #0069d9; }
+
+        #message { margin-top: 20px; padding: 15px; border-radius: 5px; text-align: center; font-weight: bold; display: none; }
+        .message-success { background-color: #d4edda; color: #155724; }
+        .message-error { background-color: #f8d7da; color: #721c24; }
+        .message-info { background-color: #cce5ff; color: #004085; }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="content-to-print">
+        <h1>Invoice #12345</h1>
+        <p>This text will be selectable in the final PDF when using the High Quality button.</p>
+        <h2>Report Summary</h2>
+        <ul>
+            <li>Item One: <strong>Complete</strong></li>
+            <li>Item Two: <strong>Pending</strong></li>
+        </ul>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam in dui mauris. Vivamus hendrerit arcu sed erat molestie vehicula. Sed auctor neque eu tellus rhoncus ut eleifend nibh porttitor.</p>
+        <h2 style="page-break-before: always;">End of Report (On Page 2)</h2>
+        <p>This content appears on a new page because of the `page-break-before` style, which Puppeteer understands perfectly.</p>
+    </div>
+
+    <div class="controls-container">
+        <label for="paper-size-select">Paper Size:</label>
+        <select id="paper-size-select">
+            <option value="a4" selected>A4</option>
+            <option value="a5">A5</option>
+            <option value="letter">Letter</option>
+        </select>
+        
+        <div class="button-group">
+            <button id="print-html-button" class="print-btn">Print via HTML (High Quality)</button>
+            <button id="print-base64-button" class="print-btn">Print via Base64 (Low Quality)</button>
+        </div>
+        
+        <div id="message"></div>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const PRINT_SERVER_URL = 'http://localhost:3000';
+    const TARGET_PRINTER = 'CutePDF Writer'; 
+
+    // --- DOM Elements ---
+    const htmlPrintBtn = document.getElementById('print-html-button');
+    const base64PrintBtn = document.getElementById('print-base64-button');
+    const messageDiv = document.getElementById('message');
+    const contentToPrint = document.getElementById('content-to-print');
+    const paperSizeSelect = document.getElementById('paper-size-select');
+    const { jsPDF } = window.jspdf;
+
+    // --- Shared Functions ---
+    function showMessage(text, type) {
+        messageDiv.textContent = text;
+        messageDiv.className = `message-${type}`;
+        messageDiv.style.display = 'block';
+    }
+
+    function setButtonsState(disabled) {
+        htmlPrintBtn.disabled = disabled;
+        base64PrintBtn.disabled = disabled;
+    }
+
+    // --- Handler 1: High-Quality Print via Server-Side Puppeteer ---
+    async function handleHtmlPrint() {
+        setButtonsState(true);
+        showMessage('Sending HTML to server for high-quality PDF generation...', 'info');
+
+        try {
+            // This is the key: send the ENTIRE document HTML, including <head> with styles.
+            const html = '<!DOCTYPE html>' + document.documentElement.outerHTML;
+            const paperSize = paperSizeSelect.value;
+            
+            // Send the data to our high-quality endpoint.
+            const response = await fetch(`${PRINT_SERVER_URL}/api/print-html`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ htmlContent: html, paperSize, printerName: TARGET_PRINTER })
+            });
+
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.details || result.error);
+            showMessage(result.message, 'success');
+
+        } catch (error) {
+            console.error('HTML Print failed:', error);
+            showMessage(`Error: ${error.message}. Is the Node.js server running?`, 'error');
+        } finally {
+            setButtonsState(false);
+        }
+    }
+
+    // --- Handler 2: Lower-Quality Print via Client-Side html2canvas ---
+    async function handleBase64Print() {
+        setButtonsState(true);
+        showMessage('Generating image of content in browser...', 'info');
+
+        try {
+            // 1. html2canvas creates an IMAGE of the content div.
+            const canvas = await html2canvas(contentToPrint, { scale: 2 });
+            const paperSize = paperSizeSelect.value;
+            
+            // 2. jsPDF creates a blank PDF and pastes the IMAGE onto it.
+            const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: paperSize });
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const imgData = canvas.toDataURL('image/png');
+            const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
+            
+            // 3. Get the PDF as a Base64 string.
+            const base64String = pdf.output('datauristring').split(',')[1];
+
+            showMessage('Image-PDF generated. Sending to printer...', 'info');
+
+            // 4. Send the Base64 data to our lower-quality endpoint.
+            const response = await fetch(`${PRINT_SERVER_URL}/api/print-base64`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base64Data: base64String, printerName: TARGET_PRINTER })
+            });
+
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.details || result.error);
+            showMessage(result.message, 'success');
+
+        } catch (error) {
+            console.error('Base64 Print failed:', error);
+            showMessage(`Error: ${error.message}.`, 'error');
+        } finally {
+            setButtonsState(false);
+        }
+    }
+
+    // --- Attach Event Listeners ---
+    htmlPrintBtn.addEventListener('click', handleHtmlPrint);
+    base64PrintBtn.addEventListener('click', handleBase64Print);
+</script>
+
+</body>
+</html>
