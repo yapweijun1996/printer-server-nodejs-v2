@@ -7,6 +7,7 @@ A simple yet powerful print server built with Node.js. It converts raw HTML to h
 ## Table of Contents
 
 - [Features](#features)
+- [Key Concepts for Junior Developers](#key-concepts-for-junior-developers)
 - [Logic Breakdown](#logic-breakdown)
   - [High-Quality Printing Flow (`/api/print-html`)](#high-quality-printing-flow-apiprint-html)
   - [Base64 Printing Flow (`/api/print-base64`)](#base64-printing-flow-apiprint-base64)
@@ -37,6 +38,45 @@ A simple yet powerful print server built with Node.js. It converts raw HTML to h
 
 ---
 
+## Key Concepts for Junior Developers
+
+This section explains the core ideas behind the print server in a beginner-friendly way.
+
+### What Problem Does This Server Solve?
+
+Web browsers can print, but they lack control. You can't easily choose a specific printer, set paper sizes reliably, or print from a server without user interaction. This project solves that by creating a "bridge" between a web application and a physical printer.
+
+- **Your Web App (Client)**: A user clicks a "Print" button.
+- **This Node.js Server (Bridge)**: Receives the print request from your app.
+- **Physical Printer**: The server sends the job to the correct printer.
+
+### What is a Headless Browser (Puppeteer)?
+
+**Puppeteer** is a tool that lets us control a real Chrome/Chromium browser from our Node.js code. "Headless" means the browser runs invisibly in the background, without a graphical user interface (GUI).
+
+We use it for the `/api/print-html` route to do something very clever:
+1. We give it raw HTML.
+2. It "renders" that HTML exactly like a real browser would, including CSS styles and images.
+3. It then "prints" the rendered page to a perfect, high-quality PDF.
+
+This is much better than trying to create a PDF from scratch because it leverages the powerful rendering engine of a modern web browser.
+
+### Understanding `async/await` (Asynchronous Operations)
+
+Printing is not instant. It involves waiting for things to happen:
+- The headless browser needs time to start up and load the HTML.
+- Saving a file to disk takes a moment.
+- Sending the file to the printer queue takes time.
+
+In JavaScript, we use `async` and `await` to handle these delays without freezing the entire server.
+
+- `async function`: Marks a function that contains time-consuming operations.
+- `await`: Pauses the function execution until a specific, time-consuming task (like `puppeteer.launch()` or `fs.promises.writeFile()`) is complete.
+
+This ensures the server can still handle other incoming requests while it waits for a print job to finish.
+
+---
+
 ## Logic Breakdown
 
 This section details the step-by-step process the server follows for each API request.
@@ -44,6 +84,22 @@ This section details the step-by-step process the server follows for each API re
 ### High-Quality Printing Flow (`/api/print-html`)
 
 This is the most powerful feature of the server. It converts raw HTML into a perfect, vector-based PDF.
+
+```mermaid
+sequenceDiagram
+    participant Client as Web App
+    participant Server as Node.js Server
+    participant Printer
+
+    Client->>+Server: POST /api/print-html (with HTML content)
+    Server->>Server: Launch Puppeteer (Headless Chrome)
+    Server->>Server: Render HTML to PDF buffer
+    Server->>Server: Save PDF to temporary file
+    Server->>+Printer: Send temporary file for printing
+    Printer-->>-Server: Acknowledge print job
+    Server->>Server: Delete temporary file
+    Server-->>-Client: Return { message: "Success" }
+```
 
 1.  **Receive Request**: The server receives a POST request containing `htmlContent`, and optionally `paperSize` and `printerName`.
 2.  **Launch Headless Browser**: It starts an invisible instance of the Chromium browser using **Puppeteer**.
@@ -57,6 +113,21 @@ This is the most powerful feature of the server. It converts raw HTML into a per
 ### Base64 Printing Flow (`/api/print-base64`)
 
 This flow is for printing a PDF that has already been created, typically by the client's browser.
+
+```mermaid
+sequenceDiagram
+    participant Client as Web App
+    participant Server as Node.js Server
+    participant Printer
+
+    Client->>+Server: POST /api/print-base64 (with Base64 data)
+    Server->>Server: Decode Base64 to PDF buffer
+    Server->>Server: Save PDF to temporary file
+    Server->>+Printer: Send temporary file for printing
+    Printer-->>-Server: Acknowledge print job
+    Server->>Server: Delete temporary file
+    Server-->>-Client: Return { message: "Success" }
+```
 
 1.  **Receive Request**: The server receives a POST request with `base64Data` and an optional `printerName`.
 2.  **Decode Data**: The Base64 string is decoded back into its raw binary PDF format.
